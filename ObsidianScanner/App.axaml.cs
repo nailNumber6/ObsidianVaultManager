@@ -17,9 +17,10 @@ namespace ObsidianScanner
 		{
 			if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
 			{
+				//TODO: Use DI container to resolve dependencies.
 				desktop.MainWindow = new MainWindow
 				{
-					DataContext = new MainWindowViewModel(),
+					DataContext = new MainWindowViewModel(new ObsidianVaultProvider(new JsonFileDeserializer())),
 				};
 			}
 
