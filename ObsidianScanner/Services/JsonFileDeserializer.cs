@@ -9,7 +9,11 @@ namespace ObsidianScanner.Services
 
 		public JsonFileDeserializer()
 		{
-			_jsonSerializer = new JsonSerializer();
+			_jsonSerializer = JsonSerializer.Create(new JsonSerializerSettings
+			{
+				Formatting = Formatting.Indented,
+				NullValueHandling = NullValueHandling.Ignore,
+			});
 		}
 
 		public T? Deserialize<T>(string filePath)
@@ -18,10 +22,28 @@ namespace ObsidianScanner.Services
 			{
 				throw new FileNotFoundException($"File not found at path {filePath}");
 			}
+
 			using var streamReader = new StreamReader(filePath);
 			using var reader = new JsonTextReader(streamReader);
-			var deserializedObject = _jsonSerializer.Deserialize<T>(reader);
-			return deserializedObject;
+			return _jsonSerializer.Deserialize<T>(reader);
+		}
+
+		public void Serialize<T>(string filePath, T value)
+		{
+			string? directory = Path.GetDirectoryName(filePath);
+			if (!string.IsNullOrEmpty(directory))
+			{
+				Directory.CreateDirectory(directory);
+			}
+
+			using var streamWriter = new StreamWriter(filePath);
+			using var writer = new JsonTextWriter(streamWriter)
+			{
+				Formatting = Formatting.Indented,
+				Indentation = 1,
+				IndentChar = '\t',
+			};
+			_jsonSerializer.Serialize(writer, value);
 		}
 	}
 }

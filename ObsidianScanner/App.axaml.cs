@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Microsoft.Extensions.DependencyInjection;
 using ObsidianScanner.ViewModels;
 using ObsidianScanner.Views;
 
@@ -8,6 +9,8 @@ namespace ObsidianScanner
 {
 	public partial class App : Application
 	{
+		ServiceProvider? _services;
+
 		public override void Initialize()
 		{
 			AvaloniaXamlLoader.Load(this);
@@ -17,10 +20,11 @@ namespace ObsidianScanner
 		{
 			if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
 			{
-				//TODO: Use DI container to resolve dependencies.
+				_services = CompositionRoot.Build();
+				desktop.Exit += (_, _) => _services?.Dispose();
 				desktop.MainWindow = new MainWindow
 				{
-					DataContext = new MainWindowViewModel(new ObsidianVaultProvider(new JsonFileDeserializer())),
+					DataContext = _services.GetRequiredService<MainWindowViewModel>(),
 				};
 			}
 

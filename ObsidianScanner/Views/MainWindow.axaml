@@ -3,16 +3,138 @@
         xmlns:vm="using:ObsidianScanner.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="960" d:DesignHeight="600"
         x:Class="ObsidianScanner.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
+        Width="960" Height="600"
         Icon="/Assets/avalonia-logo.ico"
         Title="ObsidianScanner">
 
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainWindowViewModel/>
+        <vm:MainWindowViewModel />
     </Design.DataContext>
 
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+        <DockPanel Grid.Row="0" Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right"
+                    MinWidth="130"
+                    Margin="12,0,0,0"
+                    Command="{Binding RefreshCommand}"
+                    Content="Refresh" />
+            <TextBlock VerticalAlignment="Center"
+                       FontSize="18"
+                       FontWeight="SemiBold"
+                       Text="Plugins across Obsidian vaults" />
+        </DockPanel>
+
+        <Grid Grid.Row="1" ColumnDefinitions="280,16,*">
+            <ListBox Grid.Column="0"
+                     ItemsSource="{Binding Plugins}"
+                     SelectedItem="{Binding SelectedPlugin}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ObsidianPluginViewModel">
+                        <TextBlock Text="{Binding ListTitle}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Border Grid.Column="2"
+                    Padding="12"
+                    BorderBrush="#33888888"
+                    BorderThickness="1"
+                    CornerRadius="4">
+                <Panel>
+                    <TextBlock HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Opacity="0.55"
+                               Text="Select a plugin to see each vault and enable or disable it."
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding NoSelectedPlugin}" />
+                    <ScrollViewer IsVisible="{Binding HasSelectedPlugin}">
+                        <StackPanel DataContext="{Binding SelectedPlugin}">
+                            <TextBlock FontSize="16"
+                                       FontWeight="SemiBold"
+                                       Text="{Binding Name}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,2,0,8"
+                                       Opacity="0.75"
+                                       Text="{Binding Id}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,0,0,4"
+                                       Text="{Binding Version}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,0,0,8"
+                                       Opacity="0.85"
+                                       Text="{Binding Author}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Margin="0,0,0,12"
+                                       Text="{Binding Description}"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Margin="0,0,0,6"
+                                       FontWeight="SemiBold"
+                                       Text="Vaults" />
+
+                            <ItemsControl ItemsSource="{Binding VaultRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:VaultPluginRowViewModel">
+                                        <Border Margin="0,0,0,8"
+                                                Padding="10"
+                                                BorderBrush="#22888888"
+                                                BorderThickness="1"
+                                                CornerRadius="4">
+                                            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Row="0"
+                                                            Grid.Column="0"
+                                                            Spacing="2">
+                                                    <TextBlock FontWeight="SemiBold"
+                                                               Text="{Binding VaultDisplayName}"
+                                                               TextWrapping="Wrap" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                                        <TextBlock Opacity="0.8"
+                                                                   Text="{Binding IsInstalled, StringFormat='Installed: {0}'}" />
+                                                        <TextBlock Opacity="0.8"
+                                                                   Text="{Binding IsEnabled, StringFormat='Enabled: {0}'}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                                <StackPanel Grid.Row="0"
+                                                            Grid.Column="1"
+                                                            HorizontalAlignment="Right"
+                                                            Orientation="Horizontal"
+                                                            Spacing="8">
+                                                    <Button MinWidth="88"
+                                                            Command="{Binding ActivateCommand}"
+                                                            Content="Activate"
+                                                            IsEnabled="{Binding CanActivate}" />
+                                                    <Button MinWidth="88"
+                                                            Command="{Binding DeactivateCommand}"
+                                                            Content="Deactivate"
+                                                            IsEnabled="{Binding CanDeactivate}" />
+                                                </StackPanel>
+                                                <CheckBox Grid.Row="1"
+                                                          Grid.Column="0"
+                                                          Grid.ColumnSpan="2"
+                                                          Margin="0,8,0,0"
+                                                          Content="Import plugin data (data.json)"
+                                                          IsChecked="{Binding ImportPluginData}"
+                                                          IsVisible="{Binding ShowImportDataOption}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Panel>
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,10,0,0"
+                   Foreground="Crimson"
+                   Text="{Binding LastError}"
+                   TextWrapping="Wrap"
+                   IsVisible="{Binding HasError}" />
+    </Grid>
 </Window>
