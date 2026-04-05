@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace ObsidianScanner.Services
 {
@@ -16,6 +17,8 @@ namespace ObsidianScanner.Services
 		const string CommunityPluginsFileName = "community-plugins.json";
 		const string CommunityPluginFolderName = "plugins";
 		const string DataJsonFileName = "data.json";
+
+		const string AppJsonFileName = "app.json";
 
 		readonly IFileDeserializer _fileDeserializer;
 		readonly string _obsidianConfigDirectory;
@@ -44,7 +47,12 @@ namespace ObsidianScanner.Services
 				return;
 			}
 
-			var perVaultScans = new List<(VaultDescriptor Vault, HashSet<string> PluginIds, HashSet<string> Enabled, Dictionary<string, (bool Folder, bool DataJson)> Details)>();
+			var perVaultScans = new List<(
+				VaultDescriptor Vault,
+				HashSet<string> PluginIds,
+				HashSet<string> ListedInCommunity,
+				bool VaultAllowsCommunityPlugins,
+				Dictionary<string, (bool Folder, bool DataJson, int DataJsonPropertyCount)> Details)>();
 			foreach (var vault in _vaults)
 			{
 				perVaultScans.Add(ScanVaultPlugins(vault));
@@ -110,15 +118,17 @@ namespace ObsidianScanner.Services
 					scan.Details.TryGetValue(id, out var detail);
 					bool folder = detail.Folder;
 					bool dataJson = detail.DataJson;
-					bool enabled = scan.Enabled.Contains(id);
+					bool listed = scan.ListedInCommunity.Contains(id);
 
 					snapshots.Add(new VaultPluginSnapshot(
 						scan.Vault.Id,
 						scan.Vault.Path,
 						scan.Vault.DisplayName,
-						enabled,
+						listed,
+						scan.VaultAllowsCommunityPlugins,
 						folder,
-						dataJson));
+						dataJson,
+						detail.DataJsonPropertyCount));
 
 					if (preferredSource is null && folder && HasUsablePluginFolder(scan.Vault.Path, id))
 					{
@@ -235,10 +245,17 @@ namespace ObsidianScanner.Services
 			return list;
 		}
 
-		(VaultDescriptor Vault, HashSet<string> PluginIds, HashSet<string> Enabled, Dictionary<string, (bool Folder, bool DataJson)> Details) ScanVaultPlugins(
+		(
+			VaultDescriptor Vault,
+			HashSet<string> PluginIds,
+			HashSet<string> ListedInCommunity,
+			bool VaultAllowsCommunityPlugins,
+			Dictionary<string, (bool Folder, bool DataJson, int DataJsonPropertyCount)> Details) ScanVaultPlugins(
 			VaultDescriptor vault)
 		{
-			var enabled = new HashSet<string>(StringComparer.Ordinal);
+			bool vaultAllowsCommunity = ReadVaultAllowsCommunityPlugins(vault.Path);
+
+			var listedInCommunity = new HashSet<string>(StringComparer.Ordinal);
 			string communityPath = Path.Combine(vault.Path, ObsidianFolderName, CommunityPluginsFileName);
 			if (File.Exists(communityPath))
 			{
@@ -249,7 +266,7 @@ namespace ObsidianScanner.Services
 					{
 						foreach (var id in ids.Where(s => !string.IsNullOrWhiteSpace(s)))
 						{
-							enabled.Add(id.Trim());
+							listedInCommunity.Add(id.Trim());
 						}
 					}
 				}
@@ -259,9 +276,9 @@ namespace ObsidianScanner.Services
 				}
 			}
 
-			var pluginIds = new HashSet<string>(enabled, StringComparer.Ordinal);
+			var pluginIds = new HashSet<string>(listedInCommunity, StringComparer.Ordinal);
 			string pluginsRoot = Path.Combine(vault.Path, ObsidianFolderName, CommunityPluginFolderName);
-			var details = new Dictionary<string, (bool Folder, bool DataJson)>(StringComparer.Ordinal);
+			var details = new Dictionary<string, (bool Folder, bool DataJson, int DataJsonPropertyCount)>(StringComparer.Ordinal);
 			if (Directory.Exists(pluginsRoot))
 			{
 				foreach (string dir in Directory.GetDirectories(pluginsRoot))
@@ -273,17 +290,99 @@ namespace ObsidianScanner.Services
 					}
 
 					pluginIds.Add(id);
-					bool hasData = File.Exists(Path.Combine(dir, DataJsonFileName));
-					details[id] = (true, hasData);
+					string dataPath = Path.Combine(dir, DataJsonFileName);
+					bool hasData = File.Exists(dataPath);
+					int propCount = hasData ? CountDataJsonPropertyMetric(dataPath) : 0;
+					details[id] = (true, hasData, propCount);
 				}
 			}
 
 			foreach (var id in pluginIds.Where(id => !details.ContainsKey(id)))
 			{
-				details[id] = (false, false);
+				details[id] = (false, false, 0);
 			}
 
-			return (vault, pluginIds, enabled, details);
+			return (vault, pluginIds, listedInCommunity, vaultAllowsCommunity, details);
+		}
+
+		/// <summary>
+		/// When <c>restrictedMode</c> is true in <c>.obsidian/app.json</c>, Obsidian does not load community plugins even if they are listed in <c>community-plugins.json</c>.
+		/// Missing file or missing property is treated as community plugins allowed (legacy vaults).
+		/// </summary>
+		static bool ReadVaultAllowsCommunityPlugins(string vaultPath)
+		{
+			string appPath = Path.Combine(vaultPath, ObsidianFolderName, AppJsonFileName);
+			if (!File.Exists(appPath))
+			{
+				return true;
+			}
+
+			try
+			{
+				var jo = JObject.Parse(File.ReadAllText(appPath));
+				JToken? token = jo["restrictedMode"];
+				if (token is null || token.Type == JTokenType.Null)
+				{
+					return true;
+				}
+
+				if (token.Type == JTokenType.Boolean)
+				{
+					return !token.Value<bool>();
+				}
+
+				return true;
+			}
+			catch (JsonException)
+			{
+				return true;
+			}
+		}
+
+		/// <summary>
+		/// Counts each object property name plus nested object/array structure recursively (primitives add nothing beyond their parent key).
+		/// </summary>
+		static int CountDataJsonPropertyMetric(string dataJsonPath)
+		{
+			try
+			{
+				using var reader = new StreamReader(dataJsonPath);
+				using var jsonReader = new JsonTextReader(reader);
+				var token = JToken.Load(jsonReader);
+				return CountJsonPropertyMetric(token);
+			}
+			catch
+			{
+				return 0;
+			}
+		}
+
+		static int CountJsonPropertyMetric(JToken? token)
+		{
+			if (token is JObject o)
+			{
+				int n = 0;
+				foreach (JProperty p in o.Properties())
+				{
+					n++;
+					n += CountJsonPropertyMetric(p.Value);
+				}
+
+				return n;
+			}
+
+			if (token is JArray a)
+			{
+				int n = 0;
+				foreach (JToken? item in a)
+				{
+					n += CountJsonPropertyMetric(item);
+				}
+
+				return n;
+			}
+
+			return 0;
 		}
 
 		static bool HasUsablePluginFolder(string vaultPath, string pluginId)

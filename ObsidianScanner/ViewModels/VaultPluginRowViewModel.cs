@@ -11,12 +11,14 @@ namespace ObsidianScanner.ViewModels
 		readonly IObsidianPluginWorkspace _workspace;
 		readonly Action _reloadWorkspace;
 		readonly Action<string> _setError;
+		readonly Action? _onPanelInteractionChanged;
 		readonly VaultPluginSnapshot _snapshot;
 		readonly string? _preferredSourceVaultPath;
 		readonly bool _aggregateSourceHasDataJson;
 		readonly string _pluginId;
 
 		bool _importPluginData;
+		bool _isSelected;
 
 		public VaultPluginRowViewModel(
 			IObsidianPluginWorkspace workspace,
@@ -25,7 +27,8 @@ namespace ObsidianScanner.ViewModels
 			string? preferredSourceVaultPath,
 			bool aggregateSourceHasDataJson,
 			Action reloadWorkspace,
-			Action<string> setError)
+			Action<string> setError,
+			Action? onPanelInteractionChanged = null)
 		{
 			_workspace = workspace;
 			_pluginId = pluginId;
@@ -34,18 +37,33 @@ namespace ObsidianScanner.ViewModels
 			_aggregateSourceHasDataJson = aggregateSourceHasDataJson;
 			_reloadWorkspace = reloadWorkspace;
 			_setError = setError;
+			_onPanelInteractionChanged = onPanelInteractionChanged;
 
-			ActivateCommand = ReactiveCommand.CreateFromTask(ActivateAsync);
-			DeactivateCommand = ReactiveCommand.CreateFromTask(DeactivateAsync);
+			ActivateCommand = ReactiveCommand.CreateFromTask(() => RunActivateAsync(reloadAfter: true));
+			DeactivateCommand = ReactiveCommand.CreateFromTask(() => RunDeactivateAsync(reloadAfter: true));
 		}
+
+		public string VaultPath => _snapshot.VaultPath;
 
 		public string VaultDisplayName => _snapshot.VaultDisplayName;
 
-		public bool IsEnabled => _snapshot.IsEnabled;
+		public bool ListedInCommunityPlugins => _snapshot.ListedInCommunityPlugins;
+
+		public bool VaultAllowsCommunityPlugins => _snapshot.VaultAllowsCommunityPlugins;
+
+		/// <summary>True when the plugin is listed and Obsidian is allowed to load community plugins (not Restricted mode).</summary>
+		public bool IsPluginActiveInObsidian =>
+			_snapshot.ListedInCommunityPlugins && _snapshot.VaultAllowsCommunityPlugins;
+
+		public bool ShowRestrictedModeHint =>
+			_snapshot.ListedInCommunityPlugins && !_snapshot.VaultAllowsCommunityPlugins;
 
 		public bool IsInstalled => _snapshot.PluginFolderExists;
 
-		public bool ShowImportDataOption => !IsEnabled && _aggregateSourceHasDataJson;
+		public int DataJsonPropertyCount => _snapshot.DataJsonPropertyCount;
+
+		public bool ShowImportDataOption =>
+			!_snapshot.ListedInCommunityPlugins && _aggregateSourceHasDataJson;
 
 		public bool ImportPluginData
 		{
@@ -53,16 +71,31 @@ namespace ObsidianScanner.ViewModels
 			set => this.RaiseAndSetIfChanged(ref _importPluginData, value);
 		}
 
-		public bool CanActivate => !IsEnabled
+		public bool IsSelected
+		{
+			get => _isSelected;
+			set
+			{
+				if (!this.RaiseAndSetIfChanged(ref _isSelected, value))
+				{
+					return;
+				}
+
+				_onPanelInteractionChanged?.Invoke();
+			}
+		}
+
+		public bool CanActivate =>
+			!_snapshot.ListedInCommunityPlugins
 			&& (_snapshot.PluginFolderExists || !string.IsNullOrEmpty(_preferredSourceVaultPath));
 
-		public bool CanDeactivate => IsEnabled;
+		public bool CanDeactivate => _snapshot.ListedInCommunityPlugins;
 
 		public ReactiveCommand<Unit, Unit> ActivateCommand { get; }
 
 		public ReactiveCommand<Unit, Unit> DeactivateCommand { get; }
 
-		string ResolveSourceVaultPath()
+		public string GetActivateSourceVaultPath()
 		{
 			if (_snapshot.PluginFolderExists)
 			{
@@ -77,17 +110,20 @@ namespace ObsidianScanner.ViewModels
 			throw new InvalidOperationException("No source vault is available for this plugin.");
 		}
 
-		async Task ActivateAsync()
+		public async Task RunActivateAsync(bool reloadAfter)
 		{
 			_setError(string.Empty);
 			try
 			{
 				await Task.Run(() =>
 				{
-					string source = ResolveSourceVaultPath();
+					string source = GetActivateSourceVaultPath();
 					_workspace.ActivatePlugin(_snapshot.VaultPath, _pluginId, source, ImportPluginData);
 				}).ConfigureAwait(true);
-				_reloadWorkspace();
+				if (reloadAfter)
+				{
+					_reloadWorkspace();
+				}
 			}
 			catch (Exception ex)
 			{
@@ -95,14 +131,17 @@ namespace ObsidianScanner.ViewModels
 			}
 		}
 
-		async Task DeactivateAsync()
+		public async Task RunDeactivateAsync(bool reloadAfter)
 		{
 			_setError(string.Empty);
 			try
 			{
 				await Task.Run(() => _workspace.DeactivatePlugin(_snapshot.VaultPath, _pluginId))
 					.ConfigureAwait(true);
-				_reloadWorkspace();
+				if (reloadAfter)
+				{
+					_reloadWorkspace();
+				}
 			}
 			catch (Exception ex)
 			{

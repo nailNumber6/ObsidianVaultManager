@@ -11,6 +11,7 @@ namespace ObsidianScanner.ViewModels
 	{
 		readonly IObsidianPluginWorkspace _workspace;
 		string _lastError = string.Empty;
+		DateTimeOffset? _lastRefreshedAt;
 		ObsidianPluginViewModel? _selectedPlugin;
 
 		public MainWindowViewModel()
@@ -54,6 +55,20 @@ namespace ObsidianScanner.ViewModels
 
 		public bool HasError => !string.IsNullOrEmpty(LastError);
 
+		public DateTimeOffset? LastRefreshedAt
+		{
+			get => _lastRefreshedAt;
+			private set
+			{
+				this.RaiseAndSetIfChanged(ref _lastRefreshedAt, value);
+				this.RaisePropertyChanged(nameof(LastRefreshedDisplay));
+			}
+		}
+
+		public string LastRefreshedDisplay => LastRefreshedAt is { } t
+			? $"Last refreshed: {t.ToLocalTime():g}"
+			: string.Empty;
+
 		public ReactiveCommand<Unit, Unit> RefreshCommand { get; }
 
 		void ReloadFromWorkspace()
@@ -63,6 +78,7 @@ namespace ObsidianScanner.ViewModels
 			try
 			{
 				_workspace.Refresh();
+				LastRefreshedAt = DateTimeOffset.Now;
 			}
 			catch (Exception ex)
 			{
