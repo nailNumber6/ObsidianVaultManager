@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (without leading v)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish self-contained win-x64 single-file exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Resolved version: $version"
+
+      - name: Restore
+        run: dotnet restore ObsidianScanner/ObsidianScanner.csproj
+
+      - name: Publish (net10.0, win-x64, single-file, self-contained)
+        run: >
+          dotnet publish ObsidianScanner/ObsidianScanner.csproj
+          -c Release
+          -f net10.0
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=embedded
+          -p:DebugSymbols=false
+          -o publish
+
+      - name: Rename artifact
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $target = "publish/ObsidianVaultManager-v$version-win-x64.exe"
+          Move-Item "publish/ObsidianScanner.exe" $target
+          Get-ChildItem publish
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          files: publish/ObsidianVaultManager-v*-win-x64.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
